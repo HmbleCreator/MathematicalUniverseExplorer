@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5 import QtWidgets, QtCore
 import re
+from equation_parser import parse_equation
+from visualization import plot_3d
 
 class MathematicalUniverseExplorer:
     def __init__(self):  # Fixed constructor name
@@ -40,6 +42,12 @@ class MathematicalUniverseExplorer:
         self.custom_eq_input.setMinimumHeight(100)
         self.controls.addRow("Custom:", self.custom_eq_input)
 
+        # Variable input field
+        self.variable_input = QtWidgets.QLineEdit()
+        self.variable_input.setPlaceholderText("Variables (comma separated, e.g. x, y, t)")
+        self.variable_input.setText("x, y")
+        self.controls.addRow("Variables:", self.variable_input)
+
         # Add help button
         self.help_button = QtWidgets.QPushButton("Equation Help")
         self.help_button.clicked.connect(self.show_equation_help)
@@ -72,11 +80,27 @@ class MathematicalUniverseExplorer:
         self.example_group = QtWidgets.QGroupBox("Example Equations")
         example_layout = QtWidgets.QVBoxLayout()
         examples = [
+            # Classic surfaces
             "sin(x) * cos(y)",
             "e^(-x^2 - y^2)",
             "x^2 - y^2",
             "sin(x^2 + y^2) / (x^2 + y^2 + 0.1)",
-            "log(x^2 + y^2 + 1)"
+            "log(x^2 + y^2 + 1)",
+            # Interesting functions
+            "sigmoid(x + y)",
+            "floor(sin(x) + cos(y))",
+            "abs(x*y) / (1 + x^2 + y^2)",
+            # Greek and LaTeX
+            r"\sin(\pi x) + \cos(\pi y)",
+            r"\frac{1}{1 + e^{-x-y}}",  # LaTeX sigmoid
+            # Capital Pi/Sigma
+            r"Sum_{k=1}^{5} x^k / k!",  # Notation for sum
+            # Quantum/Relativity inspired
+            r"sqrt(x**2 + y**2)",
+            r"exp(-x**2 - y**2) * cos(2*pi*x) * cos(2*pi*y)",
+            r"Heaviside(x-y)",
+            r"tanh(x*y)",
+            r"x*y/(x**2 + y**2 + 1)",
         ]
 
         for example in examples:
@@ -168,149 +192,53 @@ class MathematicalUniverseExplorer:
         self.window.show()
         sys.exit(self.app.exec_())
 
-    def parse_equation(self, equation_str):
-        """
-        Parse a human-readable math equation into a numpy-compatible expression
-        """
-        # Save original for error messages
-        original_eq = equation_str
-
-        # Replace common math notations
-        replacements = [
-            # Constants
-            (r'\bpi\b', 'np.pi'),
-            (r'\be\b', 'np.e'),
-            # Basic operations
-            (r'\^', '*'),
-            (r'(\d+)([a-zA-Z])', r'\1\2'),
-            (r'\)\s\(', ')('),
-            (r'\)([a-zA-Z0-9])', r')\1'),
-            # Greek symbols and mathematical operators
-            (r'\\sum', 'np.sum'),
-            (r'\\prod', 'np.prod'),
-            (r'\\Sigma', 'np.sum'),
-            (r'\\Pi', 'np.prod'),
-            # The following two lines are removed because they cause invalid group reference errors
-            # (r'\\Pi\s\(from\s+([^=]+)=([^\s]+)\s+to\s+([^\s]+)\)\s\[([^\]]+)\]', r'np.prod([\5 for \1 in range(\2, \3+1)]), axis=0'),
-            # (r'\\Sigma\s\(from\s+([^=]+)=([^\s]+)\s+to\s+([^\s]+)\)\s\[([^\]]+)\]', r'np.sum([\4 for \1 in range(\2, \3+1)]), axis=0'),
-            (r'\\times', ''),
-            (r'\\div', '/'),
-            (r'\\cdot', ''),
-            # Trig functions
-            (r'\bsin\(', 'np.sin('),
-            (r'\bcos\(', 'np.cos('),
-            (r'\btan\(', 'np.tan('),
-            (r'\barcsin\(', 'np.arcsin('),
-            (r'\barccos\(', 'np.arccos('),
-            (r'\barctan\(', 'np.arctan('),
-            # Hyperbolic functions
-            (r'\bsinh\(', 'np.sinh('),
-            (r'\bcosh\(', 'np.cosh('),
-            (r'\btanh\(', 'np.tanh('),
-            # Other functions
-            (r'\blog\(', 'np.log('),
-            (r'\bln\(', 'np.log('),
-            (r'\bexp\(', 'np.exp('),
-            (r'\bsqrt\(', 'np.sqrt('),
-            (r'\babs\(', 'np.abs('),
-            # Quantum mechanics notation
-            (r'\|([^>]+)\\rangle\b', r'np.kron(\1)'),
-            (r'\b\\langle([^|]+)\|', r'np.conj(\1)'),
-            (r'\bH\b', 'np.array([[1,1],[1,-1]])/np.sqrt(2)'),
-            (r'\bX\b', 'np.array([[0,1],[1,0]])'),
-            (r'\bY\b', 'np.array([[0,-1j],[1j,0]])'),
-            (r'\bZ\b', 'np.array([[1,0],[0,-1]])'),
-            # Special patterns
-            (r'e\s\^\s\(([^)]+)\)', r'np.exp(\1)'),
-            (r'e\s\^\s([a-zA-Z0-9_]+)', r'np.exp(\1)'),
-            (r'e\s\^\s(-?\d+(\.\d+)?)', r'np.exp(\1)'),
-        ]
-
-        # Apply all replacements
-        for pattern, replacement in replacements:
-            equation_str = re.sub(pattern, replacement, equation_str)
-
-        return equation_str
-
     def plot_model(self):
         """Plot either built-in or custom equation"""
         self.figure.clear()
         ax = self.figure.add_subplot(111, projection='3d')
-
-        x = np.linspace(-5, 5, 100)
-        y = np.linspace(-5, 5, 100)
-        x, y = np.meshgrid(x, y)
-
+        # Get variables from UI
+        variables = tuple(v.strip() for v in self.variable_input.text().split(',') if v.strip())
+        if not variables:
+            QtWidgets.QMessageBox.critical(self.window, "Error", "Please specify at least one variable.")
+            return
         selected_eq = self.equation_combo.currentText()
-
         if selected_eq == "Sine Wave":
-            z = np.sin(np.sqrt(x**2 + y**2))  # Fixed x2/y2 to x**2/y**2
-            ax.set_title('Sine Wave Surface')
+            func = lambda x, y: np.sin(np.sqrt(x**2 + y**2))
         elif selected_eq == "Gaussian":
-            z = np.exp(-(x**2 + y**2)/2)  # Fixed x2/y2 to x**2/y**2
-            ax.set_title('Gaussian Surface')
+            func = lambda x, y: np.exp(-(x**2 + y**2)/2)
         elif selected_eq == "Hyperbolic Tangent":
-            z = np.tanh(np.sqrt(x**2 + y**2))  # Fixed x2/y2 to x**2/y**2
-            ax.set_title('Hyperbolic Tangent Surface')
+            func = lambda x, y: np.tanh(np.sqrt(x**2 + y**2))
         elif selected_eq == "Ripple":
-            z = np.sin(x**2 + y**2)  # Fixed x2/y2 to x**2/y**2
-            ax.set_title('Ripple Surface')
+            func = lambda x, y: np.sin(x**2 + y**2)
         else:
-            try:
-                # Get custom equation
-                custom_eq = self.custom_eq_input.text()
-                if not custom_eq:
-                    raise ValueError("Please enter a custom equation")
-
-                # Parse the human-friendly equation to numpy format
-                parsed_eq = self.parse_equation(custom_eq)
-
-                # Create local namespace with safe numpy functions and variables
-                safe_dict = {
-                    'np': np,
-                    'x': x,
-                    'y': y,
-                }
-
-                try:
-                    # Evaluate the equation
-                    z = eval(parsed_eq, {"builtins": None}, safe_dict)
-
-                    # Handle potential issues with the result
-                    if np.any(np.isinf(z)) or np.any(np.isnan(z)):
-                        # Replace inf/nan values with finite values for visualization
-                        z = np.nan_to_num(z, nan=0.0, posinf=100, neginf=-100)
-                        QtWidgets.QMessageBox.warning(self.window, "Warning", 
-                            f"The equation produced some infinite or undefined values.\n"
-                            f"These have been replaced with finite values for visualization.")
-
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(self.window, "Error", 
-                        f"Error evaluating equation: {str(e)}\n\n"
-                        f"Parsed equation: {parsed_eq}\n\n"
-                        f"Try using the 'Equation Help' button for syntax examples.")
-                    return
-
-                ax.set_title(f'Custom Equation: {custom_eq}')
-
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self.window, "Error", 
-                    f"Invalid equation: {str(e)}\n"
-                    f"Please check your syntax and try again.")
+            custom_eq = self.custom_eq_input.text()
+            if not custom_eq:
+                QtWidgets.QMessageBox.critical(self.window, "Error", "Please enter a custom equation")
                 return
-
-        # Create the surface plot
-        surf = ax.plot_surface(x, y, z, cmap='viridis', linewidth=0, antialiased=True)
-
-        # Add a color bar
-        self.figure.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
-
-        # Set labels
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-
-        # Update the canvas
+            try:
+                func = parse_equation(custom_eq, variables=variables)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self.window, "Error", f"Invalid equation: {str(e)}\nPlease check your syntax and try again.")
+                return
+        # Prepare meshgrid for up to 2 variables
+        if len(variables) == 1:
+            x = np.linspace(-5, 5, 100)
+            y = np.zeros_like(x)
+            Z = func(x)
+            ax.plot(x, Z)
+        elif len(variables) >= 2:
+            x = np.linspace(-5, 5, 100)
+            y = np.linspace(-5, 5, 100)
+            X, Y = np.meshgrid(x, y)
+            try:
+                Z = func(X, Y)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self.window, "Error", f"Error evaluating equation: {str(e)}")
+                return
+            plot_3d(lambda x, y: func(x, y), ax=ax)
+        else:
+            QtWidgets.QMessageBox.critical(self.window, "Error", "Only 1D and 2D visualizations are supported.")
+            return
         self.canvas.draw()
 
 if __name__ == "__main__":  # Fixed main guard
