@@ -1,6 +1,4 @@
-Here's a professional and informative `README.md` file tailored to your **Mathematical Universe Explorer** project, summarizing its purpose, technologies, and usage:
 
----
 
 # 🌌 Mathematical Universe Explorer
 
